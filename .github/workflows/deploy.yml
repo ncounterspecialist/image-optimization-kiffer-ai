@@ -1,0 +1,53 @@
+name: CDK Stack Deployment
+on:
+  push:
+    branches: ["main", "development"]
+    tags:
+      - "beta-*"
+      - "prod-*"
+  workflow_dispatch:
+
+env:
+  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+  AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v2
+        with:
+          node-version: 18
+
+      - name: Install CDK dependencies
+        run: npm install -g aws-cdk
+
+      - name: Install dependencies
+        run: npm install 
+      
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Bootstrap CDK environment
+        run: cdk bootstrap aws://$AWS_ACCOUNT_ID/$AWS_REGION 
+
+      - name: Deploy CDK stack
+        run: |
+          npm install
+          cdk bootstrap
+          npm run build
+          cdk deploy -c S3_IMAGE_BUCKET_NAME=kifferai-static-assets-beta -c STORE_TRANSFORMED_IMAGES=false -c S3_TRANSFORMED_IMAGE_EXPIRATION_DURATION=10. -c S3_TRANSFORMED_IMAGE_CACHE_TTL='max-age=86400' -c CLOUDFRONT_ORIGIN_SHIELD_REGION=ap-south-1 -c CLOUDFRONT_CORS_ENABLED=false -c LAMBDA_MEMORY=1500 -c LAMBDA_TIMEOUT=10 -c MAX_IMAGE_SIZE=200000 -c DEPLOY_SAMPLE_WEBSITE=false
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
