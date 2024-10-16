@@ -1,7 +1,7 @@
 name: CDK Stack Deployment
 on:
   push:
-    branches: ["main", "development"]
+    branches: ["kiffer-main", "kiffer-development"]
     tags:
       - "beta-*"
       - "prod-*"
