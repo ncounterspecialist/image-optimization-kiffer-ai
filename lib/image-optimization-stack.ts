@@ -198,9 +198,14 @@ export class ImageOptimizationStack extends Stack {
         originShieldRegion: CLOUDFRONT_ORIGIN_SHIELD_REGION,
       });
 
+      // Create an Origin Access Identity
+      const originAccessIdentity = new cloudfront.OriginAccessIdentity(this, 'MyOriginAccessIdentity', {
+        comment: 'OAC for S3 Origin',
+      });
       defaultOrigin = new origins.S3Origin(originalImageBucket, {
         // Define primary origin
-          originShieldRegion: CLOUDFRONT_ORIGIN_SHIELD_REGION,
+        originShieldRegion: CLOUDFRONT_ORIGIN_SHIELD_REGION,
+        originAccessIdentity: originAccessIdentity
       });
 
       // write policy for Lambda on the s3 bucket for transformed images
@@ -298,8 +303,8 @@ export class ImageOptimizationStack extends Stack {
     });
 
     const cfnImageDelivery = imageDelivery.node.defaultChild as CfnDistribution;
-    // cfnImageDelivery.addPropertyOverride(`DistributionConfig.Origins.${(STORE_TRANSFORMED_IMAGES === 'true')?"1":"0"}.OriginAccessControlId`, oac.getAtt("Id"));
-
+    cfnImageDelivery.addPropertyOverride(`DistributionConfig.Origins.1.OriginAccessControlId`, oac.getAtt("Id"));
+    
     imageProcessing.addPermission("AllowCloudFrontServicePrincipal", {
       principal: new iam.ServicePrincipal("cloudfront.amazonaws.com"),
       action: "lambda:InvokeFunctionUrl",
