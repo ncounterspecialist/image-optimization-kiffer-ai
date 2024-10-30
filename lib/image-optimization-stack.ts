@@ -33,7 +33,7 @@ type ImageDeliveryCacheBehaviorConfig = {
   compress: any;
   viewerProtocolPolicy: any;
   cachePolicy: any;
-  functionAssociations: any;
+  functionAssociations?: any;
   responseHeadersPolicy?: any;
 };
 
@@ -169,6 +169,7 @@ export class ImageOptimizationStack extends Stack {
 
     // Create a CloudFront origin: S3 with fallback to Lambda when image needs to be transformed, otherwise with Lambda as sole origin
     var imageOrigin;
+    var defaultOrigin;
 
     if (transformedImageBucket) {
       imageOrigin = new origins.OriginGroup({
@@ -191,6 +192,18 @@ export class ImageOptimizationStack extends Stack {
       imageOrigin = new origins.HttpOrigin(imageProcessingDomainName, {
         originShieldRegion: CLOUDFRONT_ORIGIN_SHIELD_REGION,
       });
+
+      defaultOrigin = new origins.S3Origin(originalImageBucket, {
+        // Define primary origin
+          originShieldRegion: CLOUDFRONT_ORIGIN_SHIELD_REGION,
+      });
+
+      // write policy for Lambda on the s3 bucket for transformed images
+      var s3WriteOriginBucketImagesPolicy = new iam.PolicyStatement({
+        actions: ['s3:PutObject'],
+        resources: ['arn:aws:s3:::' + originalImageBucket.bucketName + '/*'],
+      });
+      iamPolicyStatements.push(s3WriteOriginBucketImagesPolicy);
     }
 
     // attach iam policy to the role assumed by Lambda
@@ -221,6 +234,17 @@ export class ImageOptimizationStack extends Stack {
       }],
     }
 
+    var defaultDeliveryCacheBehaviorConfig: ImageDeliveryCacheBehaviorConfig = {
+      origin: defaultOrigin,
+      viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+      compress: false,
+      cachePolicy: new cloudfront.CachePolicy(this, `DefaultCachePolicy${this.node.addr}`, {
+        defaultTtl: Duration.hours(24),
+        maxTtl: Duration.days(365),
+        minTtl: Duration.seconds(0)
+      })
+    }
+
     if (CLOUDFRONT_CORS_ENABLED === 'true') {
       // Creating a custom response headers policy. CORS allowed for all origins.
       const imageResponseHeadersPolicy = new cloudfront.ResponseHeadersPolicy(this, `ResponseHeadersPolicy${this.node.addr}`, {
@@ -245,7 +269,15 @@ export class ImageOptimizationStack extends Stack {
     }
     const imageDelivery = new cloudfront.Distribution(this, 'imageDeliveryDistribution', {
       comment: 'image optimization - image delivery',
-      defaultBehavior: imageDeliveryCacheBehaviorConfig
+      additionalBehaviors: {
+        '*.jpg': imageDeliveryCacheBehaviorConfig,
+        '*.jpeg': imageDeliveryCacheBehaviorConfig,
+        '*.png': imageDeliveryCacheBehaviorConfig,
+        '*.gif': imageDeliveryCacheBehaviorConfig,
+        '*.webp': imageDeliveryCacheBehaviorConfig,
+        '*.svg': imageDeliveryCacheBehaviorConfig,
+      },
+      defaultBehavior: defaultDeliveryCacheBehaviorConfig
     });
 
     // ADD OAC between CloudFront and LambdaURL
@@ -259,7 +291,7 @@ export class ImageOptimizationStack extends Stack {
     });
 
     const cfnImageDelivery = imageDelivery.node.defaultChild as CfnDistribution;
-    cfnImageDelivery.addPropertyOverride(`DistributionConfig.Origins.${(STORE_TRANSFORMED_IMAGES === 'true')?"1":"0"}.OriginAccessControlId`, oac.getAtt("Id"));
+    // cfnImageDelivery.addPropertyOverride(`DistributionConfig.Origins.${(STORE_TRANSFORMED_IMAGES === 'true')?"1":"0"}.OriginAccessControlId`, oac.getAtt("Id"));
 
     imageProcessing.addPermission("AllowCloudFrontServicePrincipal", {
       principal: new iam.ServicePrincipal("cloudfront.amazonaws.com"),
