@@ -6,6 +6,7 @@ import { CfnDistribution } from "aws-cdk-lib/aws-cloudfront";
 import { Construct } from 'constructs';
 import { getOriginShieldRegion } from './origin-shield';
 import { createHash } from 'crypto';
+import { aws_certificatemanager as acm } from 'aws-cdk-lib'; // Add ACM import
 
 // Stack Parameters
 
@@ -27,6 +28,7 @@ var LAMBDA_MEMORY = '1500';
 var LAMBDA_TIMEOUT = '60';
 // Whether to deploy a sample website referenced in https://aws.amazon.com/blogs/networking-and-content-delivery/image-optimization-using-amazon-cloudfront-and-aws-lambda/
 var DEPLOY_SAMPLE_WEBSITE = 'false';
+
 
 type ImageDeliveryCacheBehaviorConfig = {
   origin: any;
@@ -59,7 +61,10 @@ export class ImageOptimizationStack extends Stack {
     LAMBDA_TIMEOUT = this.node.tryGetContext('LAMBDA_TIMEOUT') || LAMBDA_TIMEOUT;
     MAX_IMAGE_SIZE = this.node.tryGetContext('MAX_IMAGE_SIZE') || MAX_IMAGE_SIZE;
     DEPLOY_SAMPLE_WEBSITE = this.node.tryGetContext('DEPLOY_SAMPLE_WEBSITE') || DEPLOY_SAMPLE_WEBSITE;
-    
+    // New parameter for custom domain
+    const CUSTOM_DOMAIN_NAME = this.node.tryGetContext('CUSTOM_DOMAIN_NAME') || 'your.custom.domain.com'; // Replace with your domain
+    const CERTIFICATE_ARN = this.node.tryGetContext('CERTIFICATE_ARN') || 'arn:aws:acm:us-east-1:YOUR_ACCOUNT_ID:certificate/YOUR_CERTIFICATE_ID';
+    const certificate = acm.Certificate.fromCertificateArn(this, 'CustomDomainCertificate', CERTIFICATE_ARN);
 
     // deploy a sample website for testing if required
     if (DEPLOY_SAMPLE_WEBSITE === 'true') {
@@ -277,7 +282,9 @@ export class ImageOptimizationStack extends Stack {
         '*.webp': imageDeliveryCacheBehaviorConfig,
         '*.svg': imageDeliveryCacheBehaviorConfig,
       },
-      defaultBehavior: defaultDeliveryCacheBehaviorConfig
+      defaultBehavior: defaultDeliveryCacheBehaviorConfig,
+      domainNames: [CUSTOM_DOMAIN_NAME],
+      certificate: certificate
     });
 
     // ADD OAC between CloudFront and LambdaURL
