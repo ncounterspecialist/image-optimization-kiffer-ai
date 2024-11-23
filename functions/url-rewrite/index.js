@@ -10,7 +10,7 @@ function handler(event) {
         Object.keys(request.querystring).forEach(operation => {
             switch (operation.toLowerCase()) {
                 case 'format': 
-                    var SUPPORTED_FORMATS = ['auto', 'jpeg', 'webp', 'avif', 'png', 'svg', 'gif'];
+                    var SUPPORTED_FORMATS = ['auto', 'jpeg', 'webp', 'avif', 'png', 'svg', 'gif','webm'];
                     if (request.querystring[operation]['value'] && SUPPORTED_FORMATS.includes(request.querystring[operation]['value'].toLowerCase())) {
                         var format = request.querystring[operation]['value'].toLowerCase(); // normalize to lowercase
                         if (format === 'auto') {

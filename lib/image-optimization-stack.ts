@@ -137,6 +137,13 @@ export class ImageOptimizationStack extends Stack {
       });
     }
 
+    // Reference the existing Lambda Layer using its ARN
+    const ffmpegLayer = lambda.LayerVersion.fromLayerVersionArn(
+      this,
+      'ffmpegLayer',
+      'arn:aws:lambda:ap-south-1:767397832938:layer:ffmpeg:1'
+    );
+
     // prepare env variable for Lambda 
     var lambdaEnv: LambdaEnv = {
       originalImageBucketName: originalImageBucket.bucketName,
@@ -163,6 +170,7 @@ export class ImageOptimizationStack extends Stack {
       memorySize: parseInt(LAMBDA_MEMORY),
       environment: lambdaEnv,
       logRetention: logs.RetentionDays.ONE_DAY,
+      layers: [ffmpegLayer]
     };
     var imageProcessing = new lambda.Function(this, 'image-optimization', lambdaProps);
 
