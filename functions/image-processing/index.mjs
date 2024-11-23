@@ -2,13 +2,102 @@ import { GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3
 import Sharp from 'sharp';
 import ffmpeg from 'fluent-ffmpeg';
 import { promises as fs } from 'fs';
-import path from 'path';
 
 const s3Client = new S3Client();
 const S3_ORIGINAL_IMAGE_BUCKET = process.env.originalImageBucketName;
 const S3_TRANSFORMED_IMAGE_BUCKET = process.env.transformedImageBucketName;
 const TRANSFORMED_IMAGE_CACHE_TTL = process.env.transformedImageCacheTTL;
 const MAX_IMAGE_SIZE = parseInt(process.env.maxImageSize);
+
+/**
+ * Downloads an image from S3.
+ * @param {string} imagePath - The S3 key of the image.
+ * @param {object} s3Client - An instance of AWS S3 client.
+ * @param {string} S3_BUCKET - The S3 bucket name.
+ * @returns {Promise<{ contentType: string, imageBody: Buffer }>}
+ */
+async function downloadFromS3(imagePath, s3Client, S3_BUCKET) {
+    try {
+
+        const command = new GetObjectCommand({ Bucket: S3_BUCKET, Key: imagePath });
+        console.log("GetObjectCommand", command)
+        const output = await s3Client.send(command);
+
+        console.log(`Successfully downloaded image from S3: ${imagePath}`);
+        const imageBody = await output.Body.transformToByteArray();
+        const contentType = output.ContentType;
+
+        return { contentType, imageBody };
+    } catch (error) {
+        console.error(`Error downloading image from S3: ${imagePath}`, error);
+        throw new Error('Error downloading image from S3');
+    }
+}
+
+/**
+ * Downloads an image from a URL.
+ * @param {string} imageUrl - The URL of the image.
+ * @returns {Promise<{ contentType: string, imageBody: Buffer }>}
+ */
+async function downloadFromUrl(base64Url) {
+    try {
+        // Decode the Base64-encoded URL
+        const imageUrl = decodeURIComponent(Buffer.from(base64Url, 'base64').toString('utf-8'));
+
+        // const imageUrl = Buffer.from(base64Url, 'base64').toString('utf-8');
+
+        console.log(`Decoded URL: ${imageUrl}`);
+        if(imageUrl.includes("static-assets.kifferai.com")) {
+            console.log("cdnurl contains cdn image url. However it only supports 3rd party urls.")
+            throw new Error("cdnurl contains cdn image url. However it only supports 3rd party urls.")
+        }
+        const response = await fetch(imageUrl);
+
+        if (!response.ok) {
+            throw new Error(`Failed to fetch the image from URL. Status: ${response.status}`);
+        }
+
+        console.log(`Successfully downloaded image from URL: ${imageUrl}`);
+        const contentType = response.headers.get('content-type');
+        if (!contentType || !contentType.startsWith('image/')) {
+            throw new Error(`Invalid content type: ${contentType}`);
+        }
+
+        const imageBody = await response.arrayBuffer();
+        return { contentType, imageBody };
+    } catch (error) {
+        console.error(`Error downloading image from URL: ${base64Url}`, error);
+        throw new Error('Error downloading image from URL');
+    }
+}
+
+/**
+ * Processes an image based on operationPrefix.
+ * @param {string} operationsPrefix - Indicates whether to use S3 or URL (contains "url" if URL is to be used).
+ * @param {string} imagePathOrUrl - S3 key (if S3) or image URL (if URL).
+ * @param {object} s3Client - An instance of AWS S3 client.
+ * @param {string} S3_BUCKET - S3 bucket name.
+ * @returns {Promise<{ contentType: string, originalImageBody: Buffer, sharpObject: sharp }>}
+ */
+async function processImage(operationsPrefix, originalImagePath, s3Client, S3_BUCKET) {
+    let contentType, imageBody;
+
+    if (operationsPrefix.includes('cdnurl')) {
+        const imagePathOrUrl = operationsPrefix
+            .split(',')
+            .map(operation => operation.split('='))
+            .filter(x => x[0] === 'cdnurl')[0]?.[1]; // Use optional chaining to avoid errors
+
+        ({ contentType, imageBody } = await downloadFromUrl(imagePathOrUrl));
+    } else {
+        ({ contentType, imageBody } = await downloadFromS3(originalImagePath, s3Client, S3_BUCKET));
+    }
+
+    return {
+        contentType,
+        originalImageBody: imageBody
+    };
+}
 
 // Promisify ffmpeg conversion
 function convertGifToWebm(inputPath, outputPath) {
@@ -29,6 +118,7 @@ function convertGifToWebm(inputPath, outputPath) {
 }
 
 export const handler = async (event) => {
+    try {
     // Validate if this is a GET request
     if (!event.requestContext || !event.requestContext.http || !(event.requestContext.http.method === 'GET')) return sendError(400, 'Only GET method is supported', event);
     // An example of expected path is /images/rio/1.jpeg/format=auto,width=100 or /images/rio/1.jpeg/original where /images/rio/1.jpeg is the path of the original image
@@ -43,18 +133,14 @@ export const handler = async (event) => {
 
     var startTime = performance.now();
     // Downloading original image
-    let originalImageBody;
-    let contentType;
-    try {
-        const getOriginalImageCommand = new GetObjectCommand({ Bucket: S3_ORIGINAL_IMAGE_BUCKET, Key: originalImagePath });
-        const getOriginalImageCommandOutput = await s3Client.send(getOriginalImageCommand);
-        console.log(`Got response from S3 for ${originalImagePath}`);
+        // const getOriginalImageCommand = new GetObjectCommand({ Bucket: S3_ORIGINAL_IMAGE_BUCKET, Key: originalImagePath });
+        // const getOriginalImageCommandOutput = await s3Client.send(getOriginalImageCommand);
+        // console.log(`Got response from S3 for ${originalImagePath}`);
 
-        originalImageBody = await getOriginalImageCommandOutput.Body.transformToByteArray();
-        contentType = getOriginalImageCommandOutput.ContentType;
-    } catch (error) {
-        return sendError(500, 'Error downloading original image', error);
-    }
+        // originalImageBody = await getOriginalImageCommandOutput.Body.transformToByteArray();
+        // contentType = getOriginalImageCommandOutput.ContentType;
+    const {contentType, originalImageBody} = await processImage(operationsPrefix, originalImagePath, s3Client, S3_ORIGINAL_IMAGE_BUCKET)
+
     // Check if the file is a GIF and conversion to WebM is requested
     const isGif = contentType === 'image/gif';
     const requestedFormat = operationsPrefix.includes('format=webm');
@@ -120,7 +206,7 @@ export const handler = async (event) => {
                     case 'avif': finalContentType = 'image/avif'; isLossy = true; break;
                     default: finalContentType = 'image/jpeg'; isLossy = true;
                 }
-
+            
                 if (operationsJSON['quality'] && isLossy) {
                     transformedImageSharp = transformedImageSharp.toFormat(operationsJSON['format'], {
                         quality: parseInt(operationsJSON['quality']),
@@ -196,6 +282,9 @@ export const handler = async (event) => {
                 'Cache-Control': TRANSFORMED_IMAGE_CACHE_TTL
             }
         };
+    }
+    } catch(error) {
+        return sendError(500, error.message, error.message);    
     }
 };
 
