@@ -199,12 +199,21 @@ export const handler = async (event) => {
             if (operationsJSON['format']) {
                 var isLossy = false;
                 switch (operationsJSON['format']) {
-                    case 'jpeg': finalContentType = 'image/jpeg'; isLossy = true; break;
+                    case 'jpeg': 
+                        finalContentType = 'image/jpeg'; 
+                        isLossy = true; 
+                        // Add white background for JPEG conversion
+                        transformedImageSharp = transformedImageSharp.flatten({ background: { r: 255, g: 255, b: 255 } });
+                        break;
                     case 'gif': finalContentType = 'image/gif'; break;
                     case 'webp': finalContentType = 'image/webp'; isLossy = true; break;
                     case 'png': finalContentType = 'image/png'; break;
                     case 'avif': finalContentType = 'image/avif'; isLossy = true; break;
-                    default: finalContentType = 'image/jpeg'; isLossy = true;
+                    default: 
+                        finalContentType = 'image/jpeg'; 
+                        isLossy = true;
+                        // Add white background for JPEG conversion
+                        transformedImageSharp = transformedImageSharp.flatten({ background: { r: 255, g: 255, b: 255 } });
                 }
             
                 if (operationsJSON['quality'] && isLossy) {
