@@ -200,6 +200,7 @@ export const handler = async (event) => {
                 var isLossy = false;
                 switch (operationsJSON['format']) {
                     case 'jpeg': finalContentType = 'image/jpeg'; isLossy = true; break;
+                    case 'jpg': finalContentType = 'image/jpg'; isLossy = true; break;
                     case 'gif': finalContentType = 'image/gif'; break;
                     case 'webp': finalContentType = 'image/webp'; isLossy = true; break;
                     case 'png': finalContentType = 'image/png'; break;
