@@ -290,6 +290,7 @@ export class ImageOptimizationStack extends Stack {
       comment: 'image optimization - image delivery',
       additionalBehaviors: {
         '*.jpg': imageDeliveryCacheBehaviorConfig,
+        '*.avif': imageDeliveryCacheBehaviorConfig,
         '*.jpeg': imageDeliveryCacheBehaviorConfig,
         '*.png': imageDeliveryCacheBehaviorConfig,
         '*.gif': imageDeliveryCacheBehaviorConfig,
