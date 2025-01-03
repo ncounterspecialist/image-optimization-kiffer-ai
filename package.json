@@ -5,7 +5,7 @@
     "image-optimization": "bin/image-optimization.js"
   },
   "scripts": {
-    "prebuild": "npm install sharp --cpu=x64 --os=linux --libc=glibc --prefix functions/image-processing",
+    "prebuild": "npm install sharp --cpu=x64 --os=linux --libc=glibc --prefix functions/image-processing; npm install fluent-ffmpeg",
     "build": "tsc",
     "watch": "tsc -w",
     "test": "jest",
@@ -24,6 +24,7 @@
   "dependencies": {
     "aws-cdk-lib": "2.121.1",
     "constructs": "^10.3.0",
+    "fluent-ffmpeg": "^2.1.3",
     "source-map-support": "^0.5.21"
   }
 }

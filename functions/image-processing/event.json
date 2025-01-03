@@ -1,0 +1,8 @@
+{
+    "requestContext": {
+        "http" : {
+            "method": "GET",
+            "path": "/sofie/test/ani.gif/format=webm,url=aHR0cHM6Ly9tLm1lZGlhLWFtYXpvbi5jb20vaW1hZ2VzL0kvNjF2RGItbEU0RUwuX1NMMTUwMF8uanBn"
+        }
+    }
+}

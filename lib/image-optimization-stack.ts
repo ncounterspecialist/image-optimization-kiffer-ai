@@ -6,6 +6,7 @@ import { CfnDistribution } from "aws-cdk-lib/aws-cloudfront";
 import { Construct } from 'constructs';
 import { getOriginShieldRegion } from './origin-shield';
 import { createHash } from 'crypto';
+import { aws_certificatemanager as acm } from 'aws-cdk-lib'; // Add ACM import
 
 // Stack Parameters
 
@@ -28,12 +29,13 @@ var LAMBDA_TIMEOUT = '60';
 // Whether to deploy a sample website referenced in https://aws.amazon.com/blogs/networking-and-content-delivery/image-optimization-using-amazon-cloudfront-and-aws-lambda/
 var DEPLOY_SAMPLE_WEBSITE = 'false';
 
+
 type ImageDeliveryCacheBehaviorConfig = {
   origin: any;
   compress: any;
   viewerProtocolPolicy: any;
   cachePolicy: any;
-  functionAssociations: any;
+  functionAssociations?: any;
   responseHeadersPolicy?: any;
 };
 
@@ -59,7 +61,10 @@ export class ImageOptimizationStack extends Stack {
     LAMBDA_TIMEOUT = this.node.tryGetContext('LAMBDA_TIMEOUT') || LAMBDA_TIMEOUT;
     MAX_IMAGE_SIZE = this.node.tryGetContext('MAX_IMAGE_SIZE') || MAX_IMAGE_SIZE;
     DEPLOY_SAMPLE_WEBSITE = this.node.tryGetContext('DEPLOY_SAMPLE_WEBSITE') || DEPLOY_SAMPLE_WEBSITE;
-    
+    // New parameter for custom domain
+    const CUSTOM_DOMAIN_NAME = this.node.tryGetContext('CUSTOM_DOMAIN_NAME') || 'your.custom.domain.com'; // Replace with your domain
+    const CERTIFICATE_ARN = this.node.tryGetContext('CERTIFICATE_ARN') || 'arn:aws:acm:us-east-1:YOUR_ACCOUNT_ID:certificate/YOUR_CERTIFICATE_ID';
+    const certificate = acm.Certificate.fromCertificateArn(this, 'CustomDomainCertificate', CERTIFICATE_ARN);
 
     // deploy a sample website for testing if required
     if (DEPLOY_SAMPLE_WEBSITE === 'true') {
@@ -132,6 +137,13 @@ export class ImageOptimizationStack extends Stack {
       });
     }
 
+    // Reference the existing Lambda Layer using its ARN
+    const ffmpegLayer = lambda.LayerVersion.fromLayerVersionArn(
+      this,
+      'ffmpegLayer',
+      'arn:aws:lambda:ap-south-1:767397832938:layer:ffmpeg:1'
+    );
+
     // prepare env variable for Lambda 
     var lambdaEnv: LambdaEnv = {
       originalImageBucketName: originalImageBucket.bucketName,
@@ -158,6 +170,7 @@ export class ImageOptimizationStack extends Stack {
       memorySize: parseInt(LAMBDA_MEMORY),
       environment: lambdaEnv,
       logRetention: logs.RetentionDays.ONE_DAY,
+      layers: [ffmpegLayer]
     };
     var imageProcessing = new lambda.Function(this, 'image-optimization', lambdaProps);
 
@@ -169,6 +182,7 @@ export class ImageOptimizationStack extends Stack {
 
     // Create a CloudFront origin: S3 with fallback to Lambda when image needs to be transformed, otherwise with Lambda as sole origin
     var imageOrigin;
+    var defaultOrigin;
 
     if (transformedImageBucket) {
       imageOrigin = new origins.OriginGroup({
@@ -191,6 +205,23 @@ export class ImageOptimizationStack extends Stack {
       imageOrigin = new origins.HttpOrigin(imageProcessingDomainName, {
         originShieldRegion: CLOUDFRONT_ORIGIN_SHIELD_REGION,
       });
+
+      // Create an Origin Access Identity
+      const originAccessIdentity = new cloudfront.OriginAccessIdentity(this, 'MyOriginAccessIdentity', {
+        comment: 'OAC for S3 Origin',
+      });
+      defaultOrigin = new origins.S3Origin(originalImageBucket, {
+        // Define primary origin
+        originShieldRegion: CLOUDFRONT_ORIGIN_SHIELD_REGION,
+        originAccessIdentity: originAccessIdentity
+      });
+
+      // write policy for Lambda on the s3 bucket for transformed images
+      var s3WriteOriginBucketImagesPolicy = new iam.PolicyStatement({
+        actions: ['s3:PutObject'],
+        resources: ['arn:aws:s3:::' + originalImageBucket.bucketName + '/*'],
+      });
+      iamPolicyStatements.push(s3WriteOriginBucketImagesPolicy);
     }
 
     // attach iam policy to the role assumed by Lambda
@@ -221,6 +252,17 @@ export class ImageOptimizationStack extends Stack {
       }],
     }
 
+    var defaultDeliveryCacheBehaviorConfig: ImageDeliveryCacheBehaviorConfig = {
+      origin: defaultOrigin,
+      viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+      compress: false,
+      cachePolicy: new cloudfront.CachePolicy(this, `DefaultCachePolicy${this.node.addr}`, {
+        defaultTtl: Duration.hours(24),
+        maxTtl: Duration.days(365),
+        minTtl: Duration.seconds(0)
+      })
+    }
+
     if (CLOUDFRONT_CORS_ENABLED === 'true') {
       // Creating a custom response headers policy. CORS allowed for all origins.
       const imageResponseHeadersPolicy = new cloudfront.ResponseHeadersPolicy(this, `ResponseHeadersPolicy${this.node.addr}`, {
@@ -242,10 +284,22 @@ export class ImageOptimizationStack extends Stack {
         }
       });
       imageDeliveryCacheBehaviorConfig.responseHeadersPolicy = imageResponseHeadersPolicy;
+      defaultDeliveryCacheBehaviorConfig.responseHeadersPolicy = imageResponseHeadersPolicy;
     }
     const imageDelivery = new cloudfront.Distribution(this, 'imageDeliveryDistribution', {
       comment: 'image optimization - image delivery',
-      defaultBehavior: imageDeliveryCacheBehaviorConfig
+      additionalBehaviors: {
+        '*.jpg': imageDeliveryCacheBehaviorConfig,
+        '*.avif': imageDeliveryCacheBehaviorConfig,
+        '*.jpeg': imageDeliveryCacheBehaviorConfig,
+        '*.png': imageDeliveryCacheBehaviorConfig,
+        '*.gif': imageDeliveryCacheBehaviorConfig,
+        '*.webp': imageDeliveryCacheBehaviorConfig,
+        '*.svg': imageDeliveryCacheBehaviorConfig,
+      },
+      defaultBehavior: defaultDeliveryCacheBehaviorConfig,
+      domainNames: [CUSTOM_DOMAIN_NAME],
+      certificate: certificate
     });
 
     // ADD OAC between CloudFront and LambdaURL
@@ -259,8 +313,8 @@ export class ImageOptimizationStack extends Stack {
     });
 
     const cfnImageDelivery = imageDelivery.node.defaultChild as CfnDistribution;
-    cfnImageDelivery.addPropertyOverride(`DistributionConfig.Origins.${(STORE_TRANSFORMED_IMAGES === 'true')?"1":"0"}.OriginAccessControlId`, oac.getAtt("Id"));
-
+    cfnImageDelivery.addPropertyOverride(`DistributionConfig.Origins.1.OriginAccessControlId`, oac.getAtt("Id"));
+    
     imageProcessing.addPermission("AllowCloudFrontServicePrincipal", {
       principal: new iam.ServicePrincipal("cloudfront.amazonaws.com"),
       action: "lambda:InvokeFunctionUrl",

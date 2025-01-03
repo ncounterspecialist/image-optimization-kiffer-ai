@@ -10,7 +10,7 @@ function handler(event) {
         Object.keys(request.querystring).forEach(operation => {
             switch (operation.toLowerCase()) {
                 case 'format': 
-                    var SUPPORTED_FORMATS = ['auto', 'jpeg', 'webp', 'avif', 'png', 'svg', 'gif'];
+                    var SUPPORTED_FORMATS = ['auto', 'jpeg', 'jpg','webp', 'avif', 'png', 'svg', 'gif','webm'];
                     if (request.querystring[operation]['value'] && SUPPORTED_FORMATS.includes(request.querystring[operation]['value'].toLowerCase())) {
                         var format = request.querystring[operation]['value'].toLowerCase(); // normalize to lowercase
                         if (format === 'auto') {
@@ -53,6 +53,18 @@ function handler(event) {
                         }
                     }
                     break;
+                case 'cdnurl':
+                        if (request.querystring[operation]['value']) {
+                            var cdnurl = request.querystring[operation]['value'];
+                            normalizedOperations['cdnurl'] = cdnurl.toString();
+                        } 
+                        break;
+                // case 'urlNew':
+                //     if (request.querystring[operation]['value']) {
+                //         const urlNew = request.querystring[operation]['value'].toLowerCase();
+                //         normalizedOperations['urlNew'] = urlNew;
+                //     }
+                //     break;
                 default: break;
             }
         });
@@ -64,7 +76,8 @@ function handler(event) {
             if (normalizedOperations.quality) normalizedOperationsArray.push('quality='+normalizedOperations.quality);
             if (normalizedOperations.width) normalizedOperationsArray.push('width='+normalizedOperations.width);
             if (normalizedOperations.height) normalizedOperationsArray.push('height='+normalizedOperations.height);
-            request.uri = originalImagePath + '/' + normalizedOperationsArray.join(',');     
+            if (normalizedOperations.cdnurl) normalizedOperationsArray.push('cdnurl='+normalizedOperations.cdnurl);
+            request.uri = originalImagePath + '/' + normalizedOperationsArray.join(',');
         } else {
             // If no valid operation is found, flag the request with /original path suffix
             request.uri = originalImagePath + '/original';     
