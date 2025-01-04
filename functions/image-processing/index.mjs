@@ -39,12 +39,17 @@ async function downloadFromS3(imagePath, s3Client, S3_BUCKET) {
  * @param {string} imageUrl - The URL of the image.
  * @returns {Promise<{ contentType: string, imageBody: Buffer }>}
  */
-async function downloadFromUrl(base64Url) {
+async function downloadFromUrl(encodedUrl,isHex) {
     try {
         // Decode the Base64-encoded URL
-        const imageUrl = decodeURIComponent(Buffer.from(base64Url, 'base64').toString('utf-8'));
+        let imageUrl;
+        if(isHex){
+            imageUrl = decodeURIComponent(Buffer.from(encodedUrl, 'hex').toString('utf-8'));
+        }else{
+            imageUrl = decodeURIComponent(Buffer.from(encodedUrl, 'base64').toString('utf-8'));
+        }
 
-        // const imageUrl = Buffer.from(base64Url, 'base64').toString('utf-8');
+        // const imageUrl = Buffer.from(encodedUrl, 'base64').toString('utf-8');
 
         console.log(`Decoded URL: ${imageUrl}`);
         if(imageUrl.includes("static-assets.kifferai.com")) {
@@ -66,7 +71,7 @@ async function downloadFromUrl(base64Url) {
         const imageBody = await response.arrayBuffer();
         return { contentType, imageBody };
     } catch (error) {
-        console.error(`Error downloading image from URL: ${base64Url}`, error);
+        console.error(`Error downloading image from URL: ${encodedUrl}`, error);
         throw new Error('Error downloading image from URL');
     }
 }
@@ -81,14 +86,13 @@ async function downloadFromUrl(base64Url) {
  */
 async function processImage(operationsPrefix, originalImagePath, s3Client, S3_BUCKET) {
     let contentType, imageBody;
-
+    let isHex = operationsPrefix.includes('encoding=hex');
     if (operationsPrefix.includes('cdnurl')) {
         const imagePathOrUrl = operationsPrefix
             .split(',')
             .map(operation => operation.split('='))
             .filter(x => x[0] === 'cdnurl')[0]?.[1]; // Use optional chaining to avoid errors
-
-        ({ contentType, imageBody } = await downloadFromUrl(imagePathOrUrl));
+        ({ contentType, imageBody } = await downloadFromUrl(imagePathOrUrl,isHex));
     } else {
         ({ contentType, imageBody } = await downloadFromS3(originalImagePath, s3Client, S3_BUCKET));
     }
@@ -140,7 +144,6 @@ export const handler = async (event) => {
         // originalImageBody = await getOriginalImageCommandOutput.Body.transformToByteArray();
         // contentType = getOriginalImageCommandOutput.ContentType;
     const {contentType, originalImageBody} = await processImage(operationsPrefix, originalImagePath, s3Client, S3_ORIGINAL_IMAGE_BUCKET)
-
     // Check if the file is a GIF and conversion to WebM is requested
     const isGif = contentType === 'image/gif';
     const requestedFormat = operationsPrefix.includes('format=webm');
