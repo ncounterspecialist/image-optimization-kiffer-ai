@@ -59,6 +59,12 @@ function handler(event) {
                             normalizedOperations['cdnurl'] = cdnurl.toString();
                         } 
                         break;
+                case 'encoding':
+                        if (request.querystring[operation]['value']) {
+                            var cdnurl = request.querystring[operation]['value'];
+                            normalizedOperations['encoding'] = cdnurl.toString();
+                        } 
+                        break;
                 // case 'urlNew':
                 //     if (request.querystring[operation]['value']) {
                 //         const urlNew = request.querystring[operation]['value'].toLowerCase();
@@ -77,6 +83,7 @@ function handler(event) {
             if (normalizedOperations.width) normalizedOperationsArray.push('width='+normalizedOperations.width);
             if (normalizedOperations.height) normalizedOperationsArray.push('height='+normalizedOperations.height);
             if (normalizedOperations.cdnurl) normalizedOperationsArray.push('cdnurl='+normalizedOperations.cdnurl);
+            if (normalizedOperations.cdnurl) normalizedOperationsArray.push('encoding='+normalizedOperations.encoding);
             request.uri = originalImagePath + '/' + normalizedOperationsArray.join(',');
         } else {
             // If no valid operation is found, flag the request with /original path suffix
