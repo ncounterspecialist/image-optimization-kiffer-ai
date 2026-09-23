@@ -4,6 +4,21 @@
 function handler(event) {
     var request = event.request;
     var originalImagePath = request.uri;
+    // Default resize applies only to these path prefixes. CloudFront Functions
+    // cannot load external config at runtime, so the list and caps live here.
+    var DEFAULT_RESIZE_PATH_PREFIXES = ['/instagram-comment-webhook-images/'];
+    var DEFAULT_WIDTH = '1080';
+    var MAX_WIDTH = 1600;
+    var MAX_HEIGHT = 1600;
+    var DEFAULT_QUALITY = '70';
+    var MAX_QUALITY = 80;
+    var applyDefaultResize = false;
+    for (var i = 0; i < DEFAULT_RESIZE_PATH_PREFIXES.length; i++) {
+        if (originalImagePath.indexOf(DEFAULT_RESIZE_PATH_PREFIXES[i]) !== -1) {
+            applyDefaultResize = true;
+            break;
+        }
+    }
     //  validate, process and normalize the requested operations in query parameters
     var normalizedOperations = {};
     if (request.querystring) {
@@ -31,6 +46,7 @@ function handler(event) {
                         var width = parseInt(request.querystring[operation]['value']);
                         if (!isNaN(width) && (width > 0)) {
                             // you can protect the Lambda function by setting a max value, e.g. if (width > 4000) width = 4000;
+                            if (applyDefaultResize && width > MAX_WIDTH) width = MAX_WIDTH;
                             normalizedOperations['width'] = width.toString();
                         }
                     }
@@ -40,6 +56,7 @@ function handler(event) {
                         var height = parseInt(request.querystring[operation]['value']);
                         if (!isNaN(height) && (height > 0)) {
                             // you can protect the Lambda function by setting a max value, e.g. if (height > 4000) height = 4000;
+                            if (applyDefaultResize && height > MAX_HEIGHT) height = MAX_HEIGHT;
                             normalizedOperations['height'] = height.toString();
                         }
                     }
@@ -49,6 +66,7 @@ function handler(event) {
                         var quality = parseInt(request.querystring[operation]['value']);
                         if (!isNaN(quality) && (quality > 0)) {
                             if (quality > 100) quality = 100;
+                            if (applyDefaultResize && quality > MAX_QUALITY) quality = MAX_QUALITY;
                             normalizedOperations['quality'] = quality.toString();
                         }
                     }
@@ -74,25 +92,26 @@ function handler(event) {
                 default: break;
             }
         });
-        //rewrite the path to normalized version if valid operations are found
-        if (Object.keys(normalizedOperations).length > 0) {
-            // put them in order
-            var normalizedOperationsArray = [];
-            if (normalizedOperations.format) normalizedOperationsArray.push('format='+normalizedOperations.format);
-            if (normalizedOperations.quality) normalizedOperationsArray.push('quality='+normalizedOperations.quality);
-            if (normalizedOperations.width) normalizedOperationsArray.push('width='+normalizedOperations.width);
-            if (normalizedOperations.height) normalizedOperationsArray.push('height='+normalizedOperations.height);
-            if (normalizedOperations.cdnurl) normalizedOperationsArray.push('cdnurl='+normalizedOperations.cdnurl);
-            if (normalizedOperations.cdnurl) normalizedOperationsArray.push('encoding='+normalizedOperations.encoding);
-            request.uri = originalImagePath + '/' + normalizedOperationsArray.join(',');
-        } else {
-            // If no valid operation is found, flag the request with /original path suffix
-            request.uri = originalImagePath + '/original';     
-        }
-
+    }
+    // Scoped paths always get a resize so empty or op-less queries do not hit /original.
+    if (applyDefaultResize) {
+        if (!normalizedOperations.width) normalizedOperations['width'] = DEFAULT_WIDTH;
+        if (!normalizedOperations.quality) normalizedOperations['quality'] = DEFAULT_QUALITY;
+    }
+    //rewrite the path to normalized version if valid operations are found
+    if (Object.keys(normalizedOperations).length > 0) {
+        // put them in order
+        var normalizedOperationsArray = [];
+        if (normalizedOperations.format) normalizedOperationsArray.push('format='+normalizedOperations.format);
+        if (normalizedOperations.quality) normalizedOperationsArray.push('quality='+normalizedOperations.quality);
+        if (normalizedOperations.width) normalizedOperationsArray.push('width='+normalizedOperations.width);
+        if (normalizedOperations.height) normalizedOperationsArray.push('height='+normalizedOperations.height);
+        if (normalizedOperations.cdnurl) normalizedOperationsArray.push('cdnurl='+normalizedOperations.cdnurl);
+        if (normalizedOperations.encoding) normalizedOperationsArray.push('encoding='+normalizedOperations.encoding);
+        request.uri = originalImagePath + '/' + normalizedOperationsArray.join(',');
     } else {
-        // If no query strings are found, flag the request with /original path suffix
-        request.uri = originalImagePath + '/original'; 
+        // If no valid operation is found, flag the request with /original path suffix
+        request.uri = originalImagePath + '/original';
     }
     // remove query strings
     request['querystring'] = {};
